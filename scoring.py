@@ -13,6 +13,12 @@ SMALL_CHANNEL_SUBS = 10_000      # channel counts as "small" below this
 OUTLIER_RATIO = 3.0              # views >= 3x subscribers => video outperformed its channel
 OUTLIER_MAX_SUBS = 100_000       # only count outliers on small/mid channels
 OLD_AGE_DAYS = 730               # median age of top results at which "freshness weakness" maxes out
+MUSIC_CATEGORY = "10"            # YouTube categoryId for Music
+MUSIC_DROP_SHARE = 0.5           # core drops a query when at least this share of the top is music
+QUOTE_PENALTY = 0.6              # score multiplier for queries that look like a lyric / quote
+
+_FIRST = {"i", "i'm", "im", "i'll", "i've", "me", "my"}
+_SECOND = {"you", "u", "you're", "ur", "your"}
 
 _TOKEN_RE = re.compile(r"[\w']+", re.UNICODE)
 
@@ -28,6 +34,23 @@ def title_matches(query: str, title: str) -> bool:
     if not q:
         return True
     return all(any(w.startswith(qw[: max(4, len(qw) - 2)]) for w in t) for qw in q)
+
+
+def looks_like_quote(query: str) -> bool:
+    """Song lines and trending sounds: "i never want to see your face again", "you ruined my life…".
+    Heuristic: starts with I/you, or mixes first and second person, and is long enough to be a sentence."""
+    words = _TOKEN_RE.findall(query.lower())
+    if len(words) < 4:
+        return False
+    if words[0] in _FIRST | _SECOND:
+        return True
+    ws = set(words)
+    return len(words) >= 5 and bool(ws & _FIRST) and bool(ws & _SECOND)
+
+
+def music_share(videos: list[dict]) -> float:
+    cats = [v.get("category") for v in videos if v.get("category")]
+    return sum(c == MUSIC_CATEGORY for c in cats) / len(cats) if cats else 0.0
 
 
 def _parse_date(s: str) -> datetime:
@@ -47,7 +70,8 @@ def analyze(query: str, videos: list[dict], suggest_demand: float, now: datetime
         return {
             "query": query, "score": score, "demand": round(suggest_demand, 2), "supply_weakness": 1.0,
             "median_age_days": None, "median_views": None, "match_share": 0.0,
-            "small_share": None, "outliers": 0, "reasons": ["в выдаче нет видео"],
+            "small_share": None, "outliers": 0, "music_share": 0.0, "quote": looks_like_quote(query),
+            "reasons": ["в выдаче нет видео"],
         }
 
     ages = [max(0, (now - _parse_date(v["published_at"])).days) for v in videos]
@@ -69,8 +93,14 @@ def analyze(query: str, videos: list[dict], suggest_demand: float, now: datetime
     demand = 0.75 * suggest_demand + 0.25 * outlier_signal
 
     score = round(100 * math.sqrt(demand * supply_weakness))
+    quote = looks_like_quote(query)
+    if quote:
+        score = round(score * QUOTE_PENALTY)
+    m_share = music_share(videos)
 
     reasons = []
+    if quote:
+        reasons.append("похоже на цитату или песню")
     if med_age >= 365:
         reasons.append(f"топ старый (~{med_age / 365:.1f} г.)")
     if match_share <= 0.3:
@@ -85,5 +115,6 @@ def analyze(query: str, videos: list[dict], suggest_demand: float, now: datetime
     return {
         "query": query, "score": score, "demand": round(demand, 2), "supply_weakness": round(supply_weakness, 2),
         "median_age_days": int(med_age), "median_views": int(median(views)), "match_share": round(match_share, 2),
-        "small_share": round(small_share, 2), "outliers": outliers, "reasons": reasons,
+        "small_share": round(small_share, 2), "outliers": outliers, "music_share": round(m_share, 2),
+        "quote": quote, "reasons": reasons,
     }

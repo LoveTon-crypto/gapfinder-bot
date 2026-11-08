@@ -9,7 +9,7 @@ from typing import Awaitable, Callable
 import aiohttp
 
 from filters import is_noise, split_request, stop_list
-from scoring import analyze
+from scoring import MUSIC_DROP_SHARE, analyze
 from suggest import detect_lang, expand
 from youtube import QuotaExceeded, YouTube
 
@@ -45,7 +45,7 @@ async def find_gaps(seed: str, yt: YouTube, session: aiohttp.ClientSession,
         warning = f"Квоты хватает только на {affordable} запросов (кэшированные бесплатны)."
     candidates = candidates[:top_n]
 
-    results = []
+    results, music = [], []
     for i, (q, d) in enumerate(candidates, 1):
         if progress and (i == 1 or i % 3 == 0):
             await progress(f"📊 Анализирую выдачу {i}/{len(candidates)}: «{q}»")
@@ -56,18 +56,26 @@ async def find_gaps(seed: str, yt: YouTube, session: aiohttp.ClientSession,
             break
         r = analyze(q, videos, d)
         r["suggest_demand"] = d
+        if r["music_share"] >= MUSIC_DROP_SHARE:
+            music.append(q)  # top is mostly music videos: people want a song, not an explainer
+            continue
         results.append(r)
 
     results.sort(key=lambda r: r["score"], reverse=True)
     if dropped and progress:
         await progress(f"🧹 Отфильтровано мусорных подсказок: {len(dropped)}")
+    if music:
+        note = f"🎵 Убрано музыкальных запросов (топ — клипы и песни): {len(music)}"
+        warning = f"{warning}\n{note}" if warning else note
+    if not results and music:
+        return [], note
     return results, warning
 
 
 def to_csv(results: list[dict]) -> bytes:
     buf = io.StringIO()
     cols = ["score", "query", "demand", "supply_weakness", "median_age_days", "median_views",
-            "match_share", "small_share", "outliers", "reasons"]
+            "match_share", "small_share", "outliers", "music_share", "quote", "reasons"]
     w = csv.DictWriter(buf, fieldnames=cols, extrasaction="ignore")
     w.writeheader()
     for r in results:

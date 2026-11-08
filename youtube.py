@@ -84,7 +84,7 @@ class YouTube:
         raise QuotaExceeded("Квота YouTube API на сегодня закончилась на всех ключах")
 
     async def top_results(self, query: str, region: str, lang: str, n: int = 10) -> list[dict]:
-        ck = f"top:{region}:{lang}:{n}:{query.lower()}"
+        ck = f"top2:{region}:{lang}:{n}:{query.lower()}"
         cached = self.store.get(ck)
         if cached is not None:
             return cached
@@ -110,7 +110,7 @@ class YouTube:
             out.append({
                 "video_id": it["id"], "title": sn["title"], "channel": sn["channelTitle"],
                 "published_at": sn["publishedAt"], "views": int(st.get("viewCount", 0)),
-                "subs": subs.get(sn["channelId"]),
+                "subs": subs.get(sn["channelId"]), "category": sn.get("categoryId"),
             })
         self.store.put(ck, out)
         return out

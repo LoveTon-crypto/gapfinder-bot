@@ -17,8 +17,10 @@ DEFAULT_STOP = [
     "master of orion", "pax", "gameplay", "walkthrough", "speedrun", "game", "games",
     # true crime / weapons
     "killer", "murder", "gun", "cipher",
-    # music
-    "lyrics", "remix", "song", "karaoke",
+    # music, edits, trending sounds
+    "lyrics", "lyric", "remix", "song", "karaoke", "sped up", "slowed", "nightcore", "edit", "edits", "mv", "mvs",
+    # games / fandoms that hijack "would you survive …" style queries
+    "fnaf", "danganronpa", "left 4 dead", "katseye",
 ]
 
 _WORD_RE = re.compile(r"[\w']+", re.UNICODE)

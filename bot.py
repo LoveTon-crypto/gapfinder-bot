@@ -29,9 +29,11 @@ state: dict = {}
 HELP = (
     "<b>Gap Finder</b> — ищу запросы на YouTube, где спрос есть, а хороших видео мало.\n\n"
     "Просто пришли тему, например: <code>что если</code> или <code>what if</code>\n"
+    "Несколько тем — каждую с новой строки (до 5 за раз).\n"
     "/gap &lt;тема&gt; — то же самое\n/quota — остаток квоты API\n\n"
     "Исключить слова: <code>zodiac myths -killer -tattoo</code>\n"
-    "Игры, музыка и тру-крайм отсекаются автоматически (STOP_WORDS в .env — свой список).\n\n"
+    "Игры, музыка и тру-крайм отсекаются автоматически (STOP_WORDS в .env — свой список). "
+    "Запросы, где топ — клипы, выкидываются; похожие на строчки песен — понижаются.\n\n"
     "<b>Гэп-скор 0–100</b> = спрос (подсказки, видео выше своего канала) × слабость выдачи "
     "(старый топ, мало точных совпадений, малые каналы)."
 )
@@ -106,9 +108,16 @@ async def quota(message: Message) -> None:
                          f"Ключей: {len(YT_KEYS)}. Повторы из кэша (24 ч) бесплатны.")
 
 
+MAX_SEEDS = 5
+
+
 @dp.message(F.text & ~F.text.startswith("/"))
 async def plain(message: Message) -> None:
-    await run(message, message.text)
+    seeds = [s.strip() for s in message.text.splitlines() if s.strip()]
+    if len(seeds) > MAX_SEEDS:
+        await message.answer(f"Беру первые {MAX_SEEDS} тем из {len(seeds)} — квота не резиновая.")
+    for seed in seeds[:MAX_SEEDS]:
+        await run(message, seed)
 
 
 async def main() -> None:
