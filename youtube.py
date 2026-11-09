@@ -1,11 +1,13 @@
 """YouTube Data API v3 client with key rotation, a SQLite cache and a daily quota counter.
 
 Cost per analysed query: search.list 100 + videos.list 1 + channels.list 1 = 102 units.
-Default quota is 10,000 units/day per Google Cloud PROJECT (keys in one project share it) → ~98 queries/day/key. Cached queries cost 0.
+Default quota is 10,000 units/day per Google Cloud project → ~98 new queries/day. Cached queries cost 0.
+Need more? Ask Google for a quota extension (YouTube API Services audit & quota extension form).
 """
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import time
 from datetime import datetime
@@ -14,7 +16,7 @@ from zoneinfo import ZoneInfo
 import aiohttp
 
 API = "https://www.googleapis.com/youtube/v3"
-CACHE_TTL = 24 * 3600
+CACHE_TTL = int(float(os.getenv("CACHE_DAYS", "7")) * 24 * 3600)  # search results age slowly; a week is fine for gap analysis
 
 
 def quota_day() -> str:
@@ -60,6 +62,10 @@ class YouTube:
             raise ValueError("Нужен хотя бы один YouTube API ключ (YT_API_KEYS)")
         self.keys, self.session, self.store, self.daily_limit = keys, session, store, daily_limit
         self.dead: set[int] = set()
+        self.spent = 0  # units spent since last reset_spent(); shown to the user after each run
+
+    def reset_spent(self) -> None:
+        self.spent = 0
 
     def units_left(self) -> int:
         used = self.store.used_today()
@@ -74,6 +80,7 @@ class YouTube:
                                         timeout=aiohttp.ClientTimeout(total=15)) as r:
                 data = await r.json()
             self.store.add_units(idx, cost)
+            self.spent += cost
             if r.status == 403 and any(e.get("reason") in ("quotaExceeded", "dailyLimitExceeded")
                                        for e in data.get("error", {}).get("errors", [])):
                 self.dead.add(idx)

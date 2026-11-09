@@ -19,7 +19,8 @@ from youtube import Store, YouTube
 load_dotenv()
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 YT_KEYS = [k.strip() for k in os.getenv("YT_API_KEYS", "").split(",") if k.strip()]
-TOP_N = int(os.getenv("TOP_N", "15"))
+TOP_N = int(os.getenv("TOP_N", "8"))      # economical default: 8 diverse suggestions ≈ 816 units
+DEEP_N = int(os.getenv("DEEP_N", "15"))   # /deep — wider scan when it is worth the quota
 ALLOWED = {int(x) for x in os.getenv("ALLOWED_USERS", "").split(",") if x.strip()}  # empty = everyone
 
 dp = Dispatcher()
@@ -30,7 +31,8 @@ HELP = (
     "<b>Gap Finder</b> — ищу запросы на YouTube, где спрос есть, а хороших видео мало.\n\n"
     "Просто пришли тему, например: <code>что если</code> или <code>what if</code>\n"
     "Несколько тем — каждую с новой строки (до 5 за раз).\n"
-    "/gap &lt;тема&gt; — то же самое\n/quota — остаток квоты API\n\n"
+    "/gap &lt;тема&gt; — то же самое (экономно, ~8 запросов)\n"
+    "/deep &lt;тема&gt; — шире, ~15 запросов, дороже по квоте\n/quota — остаток квоты API\n\n"
     "Исключить слова: <code>zodiac myths -killer -tattoo</code>\n"
     "Игры, музыка и тру-крайм отсекаются автоматически (STOP_WORDS в .env — свой список). "
     "Запросы, где топ — клипы, выкидываются; похожие на строчки песен — понижаются.\n\n"
@@ -54,7 +56,7 @@ def format_results(seed: str, results: list[dict], limit: int = 12) -> str:
     return "\n\n".join(lines)
 
 
-async def run(message: Message, seed: str) -> None:
+async def run(message: Message, seed: str, top_n: int = TOP_N) -> None:
     uid = message.from_user.id
     if ALLOWED and uid not in ALLOWED:
         return
@@ -75,13 +77,18 @@ async def run(message: Message, seed: str) -> None:
             pass
 
     try:
-        results, warning = await find_gaps(seed, state["yt"], state["session"], TOP_N, progress)
+        yt = state["yt"]; yt.reset_spent()
+        results, warning = await find_gaps(seed, yt, state["session"], top_n, progress)
+        left = yt.units_left()
+        spent_line = (f"💸 Потрачено {yt.spent} ед. · осталось ~{left} ≈ {left // UNITS_PER_QUERY} новых запросов"
+                      if yt.spent else f"💸 Всё из кэша, квота не потрачена · осталось ~{left}")
         if not results:
-            await status.edit_text(warning or "Ничего не нашёл.")
+            await status.edit_text(f"{html.escape(warning or 'Ничего не нашёл.')}\n\n{spent_line}")
             return
         text = format_results(seed, results)
         if warning:
             text += f"\n\n⚠️ {html.escape(warning)}"
+        text += f"\n\n{spent_line}"
         await status.edit_text(text, disable_web_page_preview=True)
         await message.answer_document(BufferedInputFile(to_csv(results), filename="gaps.csv"),
                                       caption=f"Все {len(results)} запросов с метриками")
@@ -101,11 +108,16 @@ async def gap(message: Message, command: CommandObject) -> None:
     await run(message, command.args or "")
 
 
+@dp.message(Command("deep"))
+async def deep(message: Message, command: CommandObject) -> None:
+    await run(message, command.args or "", DEEP_N)
+
+
 @dp.message(Command("quota"))
 async def quota(message: Message) -> None:
     left = state["yt"].units_left()
     await message.answer(f"Осталось ~{left} единиц ≈ {left // UNITS_PER_QUERY} новых запросов сегодня.\n"
-                         f"Ключей: {len(YT_KEYS)}. Повторы из кэша (24 ч) бесплатны.")
+                         f"Повторы из кэша ({os.getenv('CACHE_DAYS', '7')} дн.) бесплатны. Сброс в полночь по Тихоокеанскому времени.")
 
 
 MAX_SEEDS = 5

@@ -14,7 +14,7 @@ async def main() -> None:
     load_dotenv()
     p = argparse.ArgumentParser()
     p.add_argument("seed")
-    p.add_argument("--top", type=int, default=int(os.getenv("TOP_N", "15")))
+    p.add_argument("--top", type=int, default=int(os.getenv("TOP_N", "8")))
     a = p.parse_args()
     keys = [k.strip() for k in os.getenv("YT_API_KEYS", "").split(",") if k.strip()]
 
